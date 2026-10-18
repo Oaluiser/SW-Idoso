@@ -6,33 +6,50 @@ import 'package:flutter/services.dart';
 import 'models.dart';
 import 'theme.dart';
 
+/// Marca Alô Diário. Em fundo claro usa o logo completo; em fundo escuro
+/// (o texto do logo é verde-escuro) usa o ícone com o nome em claro.
 class Wordmark extends StatelessWidget {
-  const Wordmark({super.key, this.onDark = false});
+  const Wordmark({super.key, this.onDark = false, this.height = 36});
   final bool onDark;
+  final double height;
 
   @override
   Widget build(BuildContext context) {
+    if (!onDark) {
+      return Semantics(
+        label: 'Alô Diário',
+        image: true,
+        child: Image.asset(
+          'assets/brand/logo.png',
+          height: height,
+          filterQuality: FilterQuality.medium,
+        ),
+      );
+    }
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
+        // Selo creme: as partes verde-escuras do ícone somem no evergreen.
         Container(
-          width: 28,
-          height: 28,
+          width: height,
+          height: height,
+          padding: EdgeInsets.all(height * 0.14),
           decoration: const BoxDecoration(
-            color: AppColors.tertiary,
+            color: AppColors.neutral,
             shape: BoxShape.circle,
           ),
-          child: const Icon(
-            Icons.call_rounded,
-            size: 16,
-            color: AppColors.onTertiary,
+          child: Image.asset(
+            'assets/brand/icon.png',
+            filterQuality: FilterQuality.medium,
           ),
         ),
-        const SizedBox(width: 8),
+        const SizedBox(width: 12),
         Text(
           'Alô Diário',
           style: AppText.labelLg.copyWith(
-            color: onDark ? AppColors.onPrimary : AppColors.primaryDeep,
+            color: AppColors.onPrimary,
+            fontSize: height * 0.55,
+            fontWeight: FontWeight.w600,
             letterSpacing: -0.3,
           ),
         ),

@@ -138,7 +138,7 @@ class _TopBar extends StatelessWidget {
         height: 64,
         child: Row(
           children: [
-            const Wordmark(),
+            const Wordmark(height: 40),
             const Spacer(),
             FilledButton.icon(
               onPressed: () => Navigator.of(context).push(

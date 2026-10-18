@@ -1487,7 +1487,7 @@ class _BrandPanel extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Wordmark(onDark: true),
+              const Wordmark(onDark: true, height: 44),
               const Spacer(),
               Text(
                 'Uma ligação por dia.\nUm resumo para você.',
