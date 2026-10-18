@@ -25,6 +25,14 @@ String _relative(DateTime d, DateTime today) {
   return DateFormat("d 'de' MMM", 'pt_BR').format(d);
 }
 
+/// "hoje", "amanhã" ou "quarta, 22/10".
+String _whenLabel(DateTime day, DateTime today) {
+  final diff = dateOnly(day).difference(dateOnly(today)).inDays;
+  if (diff == 0) return 'hoje';
+  if (diff == 1) return 'amanhã';
+  return '${kWeekdayLong[day.weekday]}, ${DateFormat('dd/MM').format(day)}';
+}
+
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key, required this.state});
   final AppState state;
@@ -53,7 +61,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         final p = state.profile!;
-        final when = nextCallDay == today ? 'hoje' : 'amanhã';
+        final when = _whenLabel(nextCallDay, today);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             duration: const Duration(seconds: 6),
@@ -67,11 +75,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  /// Próximo dia com ligação ainda por acontecer.
-  DateTime get nextCallDay =>
-      MockData.isPendingToday(state.profile!, today, state.now)
-      ? today
-      : today.add(const Duration(days: 1));
+  /// Próximo dia com ligação ainda por acontecer, respeitando os dias da
+  /// semana escolhidos.
+  DateTime get nextCallDay {
+    final p = state.profile!;
+    // Hoje só conta se a ligação ainda não aconteceu (sem resumo do dia).
+    if (MockData.isPendingToday(p, today, state.now) &&
+        state.summaryFor(today) == null) {
+      return today;
+    }
+    var d = today.add(const Duration(days: 1));
+    for (var i = 0; i < 7 && !p.callsOn(d); i++) {
+      d = d.add(const Duration(days: 1));
+    }
+    return d;
+  }
 
   /// Resumo do dia e recado abrem sempre em outra tela, em qualquer tamanho.
   void _open(DateTime day) {
@@ -264,7 +282,6 @@ class _Hero extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = state.profile!;
     final today = dateOnly(state.now);
-    final isToday = nextCallDay == today;
     final recado = state.recadoFor(nextCallDay);
 
     var atendidas = 0, atencao = 0, perdidas = 0;
@@ -317,7 +334,7 @@ class _Hero extends StatelessWidget {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'Próxima ligação: ${isToday ? 'hoje' : 'amanhã'} '
+                        'Próxima ligação: ${_whenLabel(nextCallDay, today)} '
                         'às ${p.callTimeLabel}',
                         style: AppText.labelMd.copyWith(
                           color: AppColors.onPrimary,
@@ -381,7 +398,7 @@ class _EmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = state.profile!;
-    final when = nextCallDay == dateOnly(state.now) ? 'hoje' : 'amanhã';
+    final when = _whenLabel(nextCallDay, dateOnly(state.now));
     return MintCard(
       gradient: true,
       padding: const EdgeInsets.fromLTRB(24, 28, 24, 24),
@@ -740,10 +757,12 @@ class _DayCell extends StatelessWidget {
     final isToday = day == today;
     final upcoming = s == null && !day.isBefore(today);
     final hasRecado = state.recadoFor(day) != null;
+    final callDay = state.profile!.callsOn(day);
+    final disabled = beforeHistory || (!callDay && s == null);
 
     Color bg = Colors.transparent;
     Color fg = AppColors.onSurface;
-    if (beforeHistory) fg = AppColors.inputBorder;
+    if (disabled) fg = AppColors.inputBorder;
     if (s?.status == CallStatus.amarelo) {
       bg = AppColors.tertiary;
       fg = AppColors.onTertiary;
@@ -776,17 +795,18 @@ class _DayCell extends StatelessWidget {
       };
     } else if (upcoming && hasRecado) {
       marker = Icon(Icons.mail_outline_rounded, size: 12, color: markerColor);
-    } else if (isToday) {
+    } else if (isToday && callDay) {
       marker = Icon(Icons.schedule_rounded, size: 12, color: markerColor);
     }
 
     final missedBorder = s?.status == CallStatus.semLigacao && !selected;
 
     return Semantics(
-      button: !beforeHistory,
+      button: !disabled,
       label:
           '${DateFormat("d 'de' MMMM", 'pt_BR').format(day)}'
-          '${s != null ? ', ${s.status.label}' : ''}',
+          '${s != null ? ', ${s.status.label}' : ''}'
+          '${!callDay && s == null ? ', sem ligação' : ''}',
       child: Material(
         color: bg,
         shape: RoundedRectangleBorder(
@@ -798,7 +818,7 @@ class _DayCell extends StatelessWidget {
               : BorderSide.none,
         ),
         child: InkWell(
-          onTap: beforeHistory ? null : () => onTap(day),
+          onTap: disabled ? null : () => onTap(day),
           borderRadius: BorderRadius.circular(AppRadius.md),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -865,12 +885,19 @@ class _Legend extends StatelessWidget {
           ),
           'Recado agendado',
         ),
+        item(
+          Text(
+            '9',
+            style: AppText.labelMd.copyWith(color: AppColors.inputBorder),
+          ),
+          'Sem ligação',
+        ),
       ],
     );
   }
 }
 
-/// Página de um dia no celular.
+/// Página de um dia (resumo ou recado), em qualquer tamanho de tela.
 class _DayPage extends StatelessWidget {
   const _DayPage({required this.state, required this.day});
   final AppState state;
@@ -912,9 +939,9 @@ class DayView extends StatelessWidget {
       listenable: state,
       builder: (context, _) {
         final p = state.profile;
-        if (p == null) return const SizedBox.shrink();
         final s = state.summaryFor(day);
-        if (s != null) return _SummaryView(summary: s, profile: p);
+        if (s != null) return SummaryView(summary: s, profile: p);
+        if (p == null) return const SizedBox.shrink();
         if (!day.isBefore(dateOnly(state.now))) {
           return _ScheduledView(state: state, day: day);
         }
@@ -1101,10 +1128,16 @@ class _Bullets extends StatelessWidget {
   }
 }
 
-class _SummaryView extends StatelessWidget {
-  const _SummaryView({required this.summary, required this.profile});
+/// Resumo completo de um dia. Também usado na prévia da tela da equipe,
+/// por isso o cadastro é opcional.
+class SummaryView extends StatelessWidget {
+  const SummaryView({super.key, required this.summary, this.profile});
   final CallSummary summary;
-  final Profile profile;
+  final Profile? profile;
+
+  /// Nome usado nos títulos: o tratamento do JSON ("Seu Jorge") quando
+  /// existir; senão o nome do idoso.
+  String get _elder => summary.tratamento ?? summary.idoso;
 
   @override
   Widget build(BuildContext context) {
@@ -1121,8 +1154,10 @@ class _SummaryView extends StatelessWidget {
           'Atendeu às ${answered.horario}'
               '${attemptIdx > 1 ? ' ($attemptIdxª tentativa)' : ''}',
         )
+      else if (!s.atendida)
+        (Icons.phone_missed_rounded, '${s.tentativas.length} tentativas')
       else
-        (Icons.phone_missed_rounded, '${s.tentativas.length} tentativas'),
+        (Icons.call_rounded, 'Ligação atendida'),
       if (s.duracaoMin != null) (Icons.timer_outlined, '${s.duracaoMin} min'),
       if (s.whatsappEnviado != null)
         (Icons.chat_outlined, 'Resumo no WhatsApp às ${s.whatsappEnviado}'),
@@ -1159,16 +1194,17 @@ class _SummaryView extends StatelessWidget {
       _Section(
         title: 'Seu recado',
         icon: Icons.mail_outline_rounded,
-        child: _RecadoCard(recado: s.recado!, elder: profile.elderFirstName),
+        child: _RecadoCard(recado: s.recado!, elder: _elder),
       ),
-    _Section(
-      title: 'Contato de ${profile.elderFirstName}',
-      icon: Icons.phone_outlined,
-      child: Text(
-        profile.elderPhone,
-        style: AppText.labelLg.copyWith(color: AppColors.primary),
+    if (profile != null)
+      _Section(
+        title: 'Contato de $_elder',
+        icon: Icons.phone_outlined,
+        child: Text(
+          profile!.elderPhone,
+          style: AppText.labelLg.copyWith(color: AppColors.primary),
+        ),
       ),
-    ),
   ];
 
   List<Widget> _answered(CallSummary s) => [
@@ -1184,6 +1220,53 @@ class _SummaryView extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
         child: _MoodRow(humor: s.humorGeral!, engajamento: s.engajamento),
       ),
+    if (s.assuntos.isNotEmpty)
+      _Section(
+        title: 'Assuntos da conversa',
+        icon: Icons.forum_outlined,
+        child: Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final a in s.assuntos)
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceLimeWash,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  a,
+                  style: AppText.labelMd.copyWith(color: AppColors.onSurface),
+                ),
+              ),
+          ],
+        ),
+      ),
+    if (s.sono != null || s.medicacao != null)
+      _Section(
+        title: 'Sono e medicação',
+        icon: Icons.health_and_safety_outlined,
+        child: Column(
+          children: [
+            if (s.sono != null)
+              _HealthRow(
+                icon: Icons.bedtime_outlined,
+                label: 'Sono',
+                note: s.sono!,
+              ),
+            if (s.medicacao != null)
+              _HealthRow(
+                icon: Icons.medication_outlined,
+                label: 'Medicação',
+                note: s.medicacao!,
+              ),
+          ],
+        ),
+      ),
     if (s.alertas.isNotEmpty)
       _Section(
         title: 'Pontos de atenção',
@@ -1196,7 +1279,7 @@ class _SummaryView extends StatelessWidget {
       ),
     if (s.solicitacoes.isNotEmpty)
       _Section(
-        title: 'Pedidos de ${profile.elderFirstName}',
+        title: 'Pedidos de $_elder',
         icon: Icons.volunteer_activism_outlined,
         child: Column(
           children: [
@@ -1234,7 +1317,7 @@ class _SummaryView extends StatelessWidget {
       _Section(
         title: 'Seu recado',
         icon: Icons.mail_outline_rounded,
-        child: _RecadoCard(recado: s.recado!, elder: profile.elderFirstName),
+        child: _RecadoCard(recado: s.recado!, elder: _elder),
       ),
     if (s.respostasPerguntas.isNotEmpty)
       _Section(
@@ -1303,6 +1386,57 @@ class _SummaryView extends StatelessWidget {
         child: _Attempts(s.tentativas),
       ),
   ];
+}
+
+class _HealthRow extends StatelessWidget {
+  const _HealthRow({
+    required this.icon,
+    required this.label,
+    required this.note,
+  });
+  final IconData icon;
+  final String label;
+  final HealthNote note;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = note.detalhe.isNotEmpty ? note.detalhe : note.statusLabel;
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceMint,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: AppColors.primary),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: AppText.labelMd.copyWith(color: AppColors.onSurface),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  text,
+                  style: AppText.bodySm.copyWith(
+                    color: note.mencionado
+                        ? AppColors.onSurface
+                        : AppColors.onSurfaceMuted,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _MoodRow extends StatelessWidget {

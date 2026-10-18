@@ -26,7 +26,7 @@ abstract final class MockData {
 
   /// Hoje, antes do horário da ligação (+ tempo de gerar o resumo).
   static bool isPendingToday(Profile p, DateTime day, DateTime now) {
-    if (dateOnly(day) != dateOnly(now)) return false;
+    if (dateOnly(day) != dateOnly(now) || !p.callsOn(day)) return false;
     final ready = DateTime(
       now.year,
       now.month,
@@ -46,6 +46,8 @@ abstract final class MockData {
     final d = dateOnly(day);
     final offset = dateOnly(now).difference(d).inDays;
     if (offset < 0 || offset > historyDays) return null;
+    // Só há ligação nos dias da semana escolhidos pela família.
+    if (!p.callsOn(d)) return null;
     if (offset == 0 && isPendingToday(p, d, now)) return null;
 
     final rnd = Random(d.year * 10000 + d.month * 100 + d.day);

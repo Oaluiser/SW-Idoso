@@ -1,6 +1,8 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'mock_data.dart';
@@ -8,7 +10,8 @@ import 'models.dart';
 
 /// Estado do protótipo, persistido no localStorage do navegador.
 class AppState extends ChangeNotifier {
-  AppState(this._prefs) {
+  AppState(this._prefs, {Map<String, Map<String, dynamic>>? realSummaries})
+    : _real = realSummaries ?? const {} {
     final raw = _prefs.getString(_kProfile);
     if (raw != null) {
       try {
@@ -32,16 +35,35 @@ class AppState extends ChangeNotifier {
   static const _kRecados = 'recados';
   static const _kDemo = 'demo';
 
-  static Future<AppState> load() async =>
-      AppState(await SharedPreferences.getInstance());
+  /// Resumos reais de ligações, publicados com o site:
+  /// `{"yyyy-MM-dd": {json do resumo}}`.
+  static const realSummariesAsset = 'assets/summaries/real.json';
+
+  static Future<AppState> load() async {
+    final prefs = await SharedPreferences.getInstance();
+    return AppState(prefs, realSummaries: await _loadRealSummaries());
+  }
+
+  static Future<Map<String, Map<String, dynamic>>> _loadRealSummaries() async {
+    try {
+      final raw = await rootBundle.loadString(realSummariesAsset);
+      return (jsonDecode(raw) as Map<String, dynamic>).map(
+        (k, v) => MapEntry(k, v as Map<String, dynamic>),
+      );
+    } on Object {
+      return const {};
+    }
+  }
 
   final SharedPreferences _prefs;
+  final Map<String, Map<String, dynamic>> _real;
   Profile? _profile;
   Map<String, String> _recados = {};
 
   Profile? get profile => _profile;
 
-  /// Modo exemplo: mostra 60 dias de histórico simulado. Fora dele o
+  /// Modo exemplo: mostra 60 dias de histórico simulado, com os resumos
+  /// reais no lugar dos simulados nos dias em que existirem. Fora dele o
   /// calendário começa vazio, como será no uso real.
   bool _demo = false;
   bool get demo => _demo;
@@ -90,9 +112,33 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Resumo real do dia, com a data do calendário e o recado da família.
+  Map<String, dynamic>? realSummaryJson(DateTime day) {
+    final src = _real[dateKey(day)];
+    if (src == null) return null;
+    final j = Map<String, dynamic>.of(src);
+    j['data_ligacao'] = DateFormat('dd/MM/yyyy').format(day);
+    final recado = j['recado'];
+    final texto = recadoFor(day);
+    if (recado is Map<String, dynamic> && texto != null) {
+      j['recado'] = {...recado, 'texto': recado['texto'] ?? texto};
+    }
+    return j;
+  }
+
+  /// Só há resumos no modo exemplo; neles, o real tem prioridade sobre o
+  /// simulado do mesmo dia.
   CallSummary? summaryFor(DateTime day) {
     final p = _profile;
     if (p == null || !_demo) return null;
+    final real = realSummaryJson(day);
+    if (real != null) {
+      try {
+        return CallSummary.fromJson(real);
+      } on Object {
+        // JSON inválido não pode derrubar o calendário.
+      }
+    }
     return MockData.summaryFor(p, day, now, userRecado: recadoFor(day));
   }
 

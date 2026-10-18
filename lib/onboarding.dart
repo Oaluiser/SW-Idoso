@@ -33,6 +33,7 @@ class ProfileDraft extends ChangeNotifier {
       time = p == null
           ? null
           : TimeOfDay(hour: p.callHour, minute: p.callMinute),
+      days = {...?p?.callDays},
       questions = {...?p?.questionIds} {
     for (final c in _controllers) {
       c.addListener(notifyListeners);
@@ -46,6 +47,9 @@ class ProfileDraft extends ChangeNotifier {
   final TextEditingController familyEmail;
   final TextEditingController notes;
   TimeOfDay? time;
+
+  /// Dias da semana (1 = seg … 7 = dom). No cadastro começa vazio.
+  final Set<int> days;
   final Set<int> questions;
 
   List<TextEditingController> get _controllers => [
@@ -64,6 +68,19 @@ class ProfileDraft extends ChangeNotifier {
       questions.length <= Profile.maxQuestions;
 
   bool get timeValid => time != null;
+  bool get daysValid => days.isNotEmpty;
+
+  void toggleDay(int weekday) {
+    if (!days.remove(weekday)) days.add(weekday);
+    notifyListeners();
+  }
+
+  void setDays(Iterable<int> value) {
+    days
+      ..clear()
+      ..addAll(value);
+    notifyListeners();
+  }
 
   void setTime(TimeOfDay t) {
     time = t;
@@ -106,6 +123,7 @@ class ProfileDraft extends ChangeNotifier {
     familyEmail: familyEmail.text.trim().toLowerCase(),
     callHour: time!.hour,
     callMinute: time!.minute,
+    callDays: days.toList()..sort(),
     questionIds: questions.toList()..sort(),
     notes: notes.text.trim(),
   );
@@ -278,7 +296,8 @@ class _FormPane extends StatelessWidget {
                   builder: (context, _) => Padding(
                     padding: const EdgeInsets.only(bottom: 10),
                     child: Text(
-                      '${draft.time == null ? 'Horário a definir' : 'Todo dia às ${_hhmm(draft.time!)}'} · '
+                      '${draft.days.isEmpty ? 'Dias a definir' : weekdaysLabel(draft.days)} · '
+                      '${draft.time == null ? 'horário a definir' : _hhmm(draft.time!)} · '
                       '${draft.questions.length} de ${Profile.maxQuestions} '
                       'perguntas',
                       textAlign: TextAlign.center,
@@ -453,7 +472,7 @@ class _ContactsStep extends StatelessWidget {
         const _StepTitle(
           title: 'Para quem vamos ligar?',
           subtitle:
-              'Uma ligação por dia, sempre no mesmo horário, com '
+              'Ligamos nos dias e no horário que você escolher, com '
               'conversa de amigo. Depois, você recebe o resumo.',
         ),
         const SizedBox(height: 32),
@@ -488,8 +507,8 @@ class _CallStep extends StatelessWidget {
         _StepTitle(
           title: 'Como vai ser a conversa${name.isEmpty ? '' : ' com $name'}?',
           subtitle:
-              'Escolha o horário e o que você gostaria de saber. '
-              'Dá para mudar tudo depois.',
+              'Escolha os dias, o horário e o que você gostaria de '
+              'saber. Dá para mudar tudo depois.',
         ),
         const SizedBox(height: 32),
         CallFields(key: fieldsKey, draft: draft, onboarding: true),
@@ -914,6 +933,7 @@ class CallFields extends StatefulWidget {
 }
 
 class CallFieldsState extends State<CallFields> {
+  final _daysKey = GlobalKey();
   final _timeKey = GlobalKey();
   final _questionsKey = GlobalKey();
   bool _submitted = false;
@@ -924,8 +944,13 @@ class CallFieldsState extends State<CallFields> {
 
   bool validate() {
     setState(() => _submitted = true);
-    if (d.timeValid && d.questionsValid) return true;
-    final ctx = (d.timeValid ? _questionsKey : _timeKey).currentContext;
+    if (d.daysValid && d.timeValid && d.questionsValid) return true;
+    final target = !d.daysValid
+        ? _daysKey
+        : !d.timeValid
+        ? _timeKey
+        : _questionsKey;
+    final ctx = target.currentContext;
     if (ctx != null) {
       Scrollable.ensureVisible(
         ctx,
@@ -967,8 +992,30 @@ class CallFieldsState extends State<CallFields> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _SectionHeader(
-              key: _timeKey,
+              key: _daysKey,
               number: 1,
+              title: 'Em quais dias ligamos?',
+              subtitle: 'Escolha de 1 a 7 dias da semana.',
+            ),
+            const SizedBox(height: 16),
+            _DaySelector(draft: d),
+            AnimatedSize(
+              duration: const Duration(milliseconds: 200),
+              alignment: Alignment.topCenter,
+              child: _submitted && !d.daysValid
+                  ? const Padding(
+                      padding: EdgeInsets.only(top: 12),
+                      child: _InlineMessage(
+                        error: true,
+                        text: 'Escolha pelo menos 1 dia para continuar.',
+                      ),
+                    )
+                  : const SizedBox(width: double.infinity),
+            ),
+            const SizedBox(height: 40),
+            _SectionHeader(
+              key: _timeKey,
+              number: 2,
               title: 'Que horas ligamos?',
               subtitle:
                   'Escolha um horário em que costuma estar em casa e '
@@ -998,7 +1045,8 @@ class CallFieldsState extends State<CallFields> {
                           const SizedBox(width: 10),
                           Expanded(
                             child: Text(
-                              'Todos os dias às ${_hhmm(time)}. Se não '
+                              '${d.days.isEmpty ? 'Às' : '${weekdaysLabel(d.days)} às'} '
+                              '${_hhmm(time)}. Se não '
                               'atender, tentamos de novo às '
                               '${_hhmm(_addMinutes(time, 10))} e '
                               '${_hhmm(_addMinutes(time, 20))}.',
@@ -1020,7 +1068,7 @@ class CallFieldsState extends State<CallFields> {
             const SizedBox(height: 40),
             _SectionHeader(
               key: _questionsKey,
-              number: 2,
+              number: 3,
               title: 'O que você quer saber?',
               subtitle:
                   'Escolha de ${Profile.minQuestions} a '
@@ -1045,7 +1093,7 @@ class CallFieldsState extends State<CallFields> {
               ),
             const SizedBox(height: 40),
             const _SectionHeader(
-              number: 3,
+              number: 4,
               title: 'Algo que ajude a conversa?',
               subtitle:
                   'Opcional. Assuntos favoritos, cuidados de saúde, '
@@ -1242,6 +1290,148 @@ class _QuestionTile extends StatelessWidget {
                   ],
                 ),
               ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Seletor de dias da semana + atalhos comuns.
+class _DaySelector extends StatelessWidget {
+  const _DaySelector({required this.draft});
+  final ProfileDraft draft;
+
+  static const _letters = {
+    7: 'D',
+    1: 'S',
+    2: 'T',
+    3: 'Q',
+    4: 'Q',
+    5: 'S',
+    6: 'S',
+  };
+
+  static const _presets = [
+    ('Todos os dias', [1, 2, 3, 4, 5, 6, 7]),
+    ('Seg a sex', [1, 2, 3, 4, 5]),
+    ('Fim de semana', [6, 7]),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final days = draft.days;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            for (final wd in kWeekdayOrder) ...[
+              if (wd != kWeekdayOrder.first) const SizedBox(width: 6),
+              Expanded(
+                child: Semantics(
+                  label: kWeekdayLong[wd],
+                  checked: days.contains(wd),
+                  button: true,
+                  excludeSemantics: true,
+                  child: Material(
+                    color: days.contains(wd)
+                        ? AppColors.primary
+                        : AppColors.surfaceCard,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.md),
+                      side: BorderSide(
+                        color: days.contains(wd)
+                            ? AppColors.primary
+                            : AppColors.inputBorder,
+                      ),
+                    ),
+                    child: InkWell(
+                      onTap: () => draft.toggleDay(wd),
+                      borderRadius: BorderRadius.circular(AppRadius.md),
+                      child: SizedBox(
+                        height: 52,
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              _letters[wd]!,
+                              style: AppText.labelLg.copyWith(
+                                color: days.contains(wd)
+                                    ? AppColors.onPrimary
+                                    : AppColors.onSurface,
+                              ),
+                            ),
+                            Text(
+                              kWeekdayShort[wd]!,
+                              style: AppText.labelSm.copyWith(
+                                fontSize: 10,
+                                color: days.contains(wd)
+                                    ? AppColors.onPrimaryMuted
+                                    : AppColors.onSurfaceMuted,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final (label, preset) in _presets)
+              _PresetChip(
+                label: label,
+                active:
+                    days.length == preset.length && days.containsAll(preset),
+                onTap: () => draft.setDays(preset),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _PresetChip extends StatelessWidget {
+  const _PresetChip({
+    required this.label,
+    required this.active,
+    required this.onTap,
+  });
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      selected: active,
+      child: Material(
+        color: active ? AppColors.surfaceMint : AppColors.surfaceCard,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(999),
+          side: BorderSide(
+            color: active ? AppColors.primary : AppColors.inputBorder,
+          ),
+        ),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(999),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            child: Text(
+              label,
+              style: AppText.labelMd.copyWith(color: AppColors.onSurface),
             ),
           ),
         ),
@@ -1490,15 +1680,16 @@ class _BrandPanel extends StatelessWidget {
               const Wordmark(onDark: true, height: 44),
               const Spacer(),
               Text(
-                'Uma ligação por dia.\nUm resumo para você.',
+                'Uma ligação carinhosa.\nUm resumo para você.',
                 style: AppText.display.copyWith(color: AppColors.onPrimary),
               ),
               const SizedBox(height: 16),
               ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 420),
                 child: Text(
-                  'Ligamos sempre no mesmo horário, conversamos como um amigo '
-                  'e mandamos para você o que importa.',
+                  'Ligamos nos dias e no horário que você escolher, '
+                  'conversamos como um amigo e mandamos para você o que '
+                  'importa.',
                   style: AppText.bodyLg.copyWith(
                     color: AppColors.onPrimaryMuted,
                   ),

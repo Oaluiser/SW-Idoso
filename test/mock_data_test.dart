@@ -1,6 +1,9 @@
+import 'dart:convert';
+
 import 'package:alo_diario/mock_data.dart';
 import 'package:alo_diario/models.dart';
 import 'package:alo_diario/state.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -12,11 +15,13 @@ const _profile = Profile(
   elderPhone: '(11) 3456-7890',
   callHour: 10,
   callMinute: 0,
+  callDays: [1, 2, 3, 4, 5, 6, 7],
   questionIds: [0, 2, 8],
   notes: '',
 );
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   final now = DateTime(2026, 10, 17, 15);
 
   test('parseia o JSON de exemplo do backend', () {
@@ -102,5 +107,96 @@ void main() {
 
     await state.reset();
     expect(state.demo, isFalse);
+  });
+
+  test('rótulos dos dias da semana', () {
+    expect(weekdaysLabel([1, 2, 3, 4, 5, 6, 7]), 'Todos os dias');
+    expect(weekdaysLabel([1, 2, 3, 4, 5]), 'De segunda a sexta');
+    expect(weekdaysLabel([6, 7]), 'Sábado e domingo');
+    expect(weekdaysLabel([1, 3, 5]), 'Seg, qua e sex');
+    expect(weekdaysLabel([2]), 'Toda terça');
+    expect(weekdaysLabel([6]), 'Todo sábado');
+  });
+
+  test('só há ligação nos dias escolhidos', () {
+    final p = _profile.copyWith(callDays: [1, 3, 5]);
+    for (var i = 1; i <= 14; i++) {
+      final day = now.subtract(Duration(days: i));
+      final s = MockData.summaryFor(p, day, now);
+      expect(s != null, p.callsOn(day), reason: '$day');
+    }
+  });
+
+  test('cadastro antigo sem callDays liga todos os dias', () {
+    final j = _profile.toJson()..remove('callDays');
+    expect(Profile.fromJson(j).callDays, [1, 2, 3, 4, 5, 6, 7]);
+  });
+
+  test('lê o JSON novo do backend (resumo real)', () {
+    final s = CallSummary.fromJson({
+      'idoso': 'Jorge',
+      'tratamento': 'Seu Jorge',
+      'data_ligacao': '18/10/2026',
+      'duracao_min': null,
+      'status': 'verde',
+      'titulo': 'Almoço com os filhos',
+      'resumo': 'Jorge almoçou com os filhos.',
+      'sinais': [],
+      'humor_geral': 8,
+      'engajamento': 'alto',
+      'sono': {'status': 'nao_mencionado', 'detalhe': ''},
+      'medicacao': {'status': 'nao_mencionado', 'detalhe': ''},
+      'recado': {'havia_recado': false, 'entregue': false, 'resposta': ''},
+      'pedidos': [],
+      'assuntos': ['Xavante'],
+      'mudancas_vs_historico': ['Primeiro registro.'],
+      'pauta_proxima_ligacao': ['Como foi o jogo?'],
+    });
+    expect(s.resumoFamilia, 'Jorge almoçou com os filhos.');
+    expect(s.tratamento, 'Seu Jorge');
+    expect(s.recado, isNull);
+    expect(s.assuntos, ['Xavante']);
+    expect(s.sono!.mencionado, isFalse);
+    expect(s.duracaoMin, isNull);
+  });
+
+  test('resumo real só no exemplo, no lugar do simulado do dia', () async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+    final today = dateOnly(DateTime.now());
+    final state = AppState(
+      prefs,
+      realSummaries: {
+        dateKey(today): {
+          'idoso': 'Jorge',
+          'status': 'verde',
+          'titulo': 'Almoço com os filhos',
+          'resumo': 'Texto',
+        },
+      },
+    );
+    await state.saveProfile(_profile);
+
+    // Logo após o cadastro: calendário vazio, inclusive hoje.
+    expect(state.summaryFor(today), isNull);
+
+    await state.setDemo(true);
+    final s = state.summaryFor(today)!;
+    expect(s.titulo, 'Almoço com os filhos');
+    expect(s.data, today);
+    // Os outros dias seguem simulados.
+    expect(
+      state.summaryFor(today.subtract(const Duration(days: 1)))!.titulo,
+      isNot('Almoço com os filhos'),
+    );
+  });
+
+  test('asset publicado tem o resumo do Jorge em 18/10', () async {
+    final raw = await rootBundle.loadString(AppState.realSummariesAsset);
+    final all = jsonDecode(raw) as Map<String, dynamic>;
+    final s = CallSummary.fromJson(all['2026-10-18'] as Map<String, dynamic>);
+    expect(s.idoso, 'Jorge');
+    expect(s.status, CallStatus.verde);
+    expect(s.assuntos, contains('Xavante'));
   });
 }

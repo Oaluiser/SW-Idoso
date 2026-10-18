@@ -1,0 +1,36 @@
+{
+  "2026-10-18": {
+    "idoso": "Jorge",
+    "tratamento": "Seu Jorge",
+    "pronome": "ele",
+    "data_ligacao": "18/10/2026",
+    "dia_semana": "domingo",
+    "duracao_min": null,
+    "status": "verde",
+    "titulo": "Almoço com os filhos e animado com Xavante",
+    "resumo": "Jorge almoçou com os filhos Otávio e Júnior no restaurante Arco Íris, comeu peixe frito com salada de maionese e disse que estava muito gostoso. Depois foi visitar as filhas na casa da mãe delas. Falou com entusiasmo do Xavante, que chamou de maior paixão da vida, e vai assistir ao jogo de domingo pela TV. Conversa leve, com bom humor e brincadeiras, sem queixas de saúde.",
+    "sinais": [],
+    "humor_geral": 8,
+    "engajamento": "alto",
+    "sono": { "status": "nao_mencionado", "detalhe": "" },
+    "medicacao": { "status": "nao_mencionado", "detalhe": "" },
+    "recado": { "havia_recado": false, "entregue": false, "resposta": "" },
+    "pedidos": [],
+    "assuntos": [
+      "almoço com os filhos Otávio e Júnior",
+      "restaurante Arco Íris",
+      "peixe frito",
+      "visita às filhas",
+      "Xavante",
+      "jogo de domingo pela TV"
+    ],
+    "mudancas_vs_historico": [
+      "Primeiro registro: sem histórico para comparar."
+    ],
+    "pauta_proxima_ligacao": [
+      "Perguntar como foi o jogo do Xavante de domingo e se assistiu com alguém.",
+      "Perguntar como foi a visita às filhas.",
+      "Perguntar como tem dormido e se está tomando os remédios em dia."
+    ]
+  }
+}
